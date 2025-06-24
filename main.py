@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import (
     Updater,
@@ -8,78 +9,100 @@ from telegram.ext import (
     ConversationHandler,
     CallbackContext,
 )
-import os
 
-# 상태 정의
-COIN_NAME, COIN_PRICE, TARGET_PROFIT, INTERVAL = range(4)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
 
-# 유저의 코인 정보 저장용
-user_data = {}
+ASK_COIN, ASK_PRICE, ASK_TARGET, ASK_INTERVAL = range(4)
+user_data_store = {}
 
-# 로깅 설정
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "📈 안녕하세요! 비트코인 수익률 알림 봇입니다.\n\n"
+        "/coininput 으로 코인을 등록하고\n"
+        "/coinupdate 으로 수정을,\n"
+        "/coindelete 으로 삭제할 수 있습니다."
+    )
 
-# 시작 명령어 핸들러
-def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text("안녕하세요! /코인입력 으로 코인을 등록해보세요.")
+def coin_input(update: Update, context: CallbackContext):
+    update.message.reply_text("💰 코인 이름을 입력해주세요 (예: BTC, ETH)")
+    return ASK_COIN
 
-# 코인 입력 시작
-def coin_input(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text("코인 이름을 입력해주세요 (예: BTC)")
-    return COIN_NAME
+def ask_price(update: Update, context: CallbackContext):
+    context.user_data['coin'] = update.message.text.upper()
+    update.message.reply_text("🪙 매수 가격을 입력해주세요 (숫자만)")
+    return ASK_PRICE
 
-def get_coin_name(update: Update, context: CallbackContext) -> int:
-    context.user_data["coin"] = update.message.text.upper()
-    update.message.reply_text(f"{context.user_data['coin']}의 매수 가격을 입력해주세요.")
-    return COIN_PRICE
-
-def get_coin_price(update: Update, context: CallbackContext) -> int:
+def ask_target(update: Update, context: CallbackContext):
     try:
-        price = float(update.message.text)
-        context.user_data["price"] = price
-        update.message.reply_text("목표 수익률을 % 단위로 입력해주세요 (예: 10)")
-        return TARGET_PROFIT
+        context.user_data['price'] = float(update.message.text)
     except ValueError:
-        update.message.reply_text("숫자로 입력해주세요. 매수 가격을 다시 입력해주세요.")
-        return COIN_PRICE
+        update.message.reply_text("❗ 숫자로 입력해주세요.")
+        return ASK_PRICE
+    update.message.reply_text("🎯 목표 수익률을 %로 입력해주세요 (예: 10)")
+    return ASK_TARGET
 
-def get_target_profit(update: Update, context: CallbackContext) -> int:
+def ask_interval(update: Update, context: CallbackContext):
     try:
-        profit = float(update.message.text)
-        context.user_data["profit"] = profit
-        update.message.reply_text("알림 간격(초 단위)을 입력해주세요 (예: 60)")
-        return INTERVAL
+        context.user_data['target'] = float(update.message.text)
     except ValueError:
-        update.message.reply_text("숫자로 입력해주세요. 목표 수익률을 다시 입력해주세요.")
-        return TARGET_PROFIT
+        update.message.reply_text("❗ 숫자로 입력해주세요.")
+        return ASK_TARGET
+    update.message.reply_text("⏱️ 알림 간격(초)을 입력해주세요")
+    return ASK_INTERVAL
 
-def get_interval(update: Update, context: CallbackContext) -> int:
+def save_coin(update: Update, context: CallbackContext):
     try:
         interval = int(update.message.text)
-        coin = context.user_data["coin"]
-        user_data[coin] = {
-            "price": context.user_data["price"],
-            "profit": context.user_data["profit"],
-            "interval": interval
-        }
-        update.message.reply_text(f"{coin} 저장 완료 ✅\n\n/코인입력 으로 다른 코인도 추가 가능해요.")
-        return ConversationHandler.END
     except ValueError:
-        update.message.reply_text("정수로 입력해주세요. 알림 간격을 다시 입력해주세요.")
-        return INTERVAL
+        update.message.reply_text("❗ 숫자로 입력해주세요.")
+        return ASK_INTERVAL
 
-def cancel(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text("입력을 취소했습니다.")
+    context.user_data['interval'] = interval
+    user_id = update.effective_user.id
+
+    if user_id not in user_data_store:
+        user_data_store[user_id] = []
+
+    user_data_store[user_id].append(context.user_data.copy())
+
+    update.message.reply_text(
+        f"✅ 저장 완료!\n\n"
+        f"코인: {context.user_data['coin']}\n"
+        f"매수가: {context.user_data['price']}\n"
+        f"목표 수익률: {context.user_data['target']}%\n"
+        f"알림 간격: {context.user_data['interval']}초"
+    )
     return ConversationHandler.END
 
-def list_coins(update: Update, context: CallbackContext) -> None:
-    if not user_data:
-        update.message.reply_text("등록된 코인이 없습니다.")
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("🚫 입력이 취소되었습니다.")
+    return ConversationHandler.END
+
+def coin_update(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id not in user_data_store or not user_data_store[user_id]:
+        update.message.reply_text("❗ 저장된 코인이 없습니다.")
         return
-    message = "📊 현재 등록된 코인:\n"
-    for coin, info in user_data.items():
-        message += f"- {coin}: 매수가 {info['price']}, 목표수익률 {info['profit']}%, 알림간격 {info['interval']}초\n"
-    update.message.reply_text(message)
+
+    reply = "✏️ 수정할 코인을 선택해주세요:\n"
+    for i, coin in enumerate(user_data_store[user_id]):
+        reply += f"{i + 1}. {coin['coin']}\n"
+    update.message.reply_text(reply)
+    context.user_data['update_mode'] = True
+
+def coin_delete(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id not in user_data_store or not user_data_store[user_id]:
+        update.message.reply_text("❗ 삭제할 코인이 없습니다.")
+        return
+
+    reply = "❌ 삭제할 코인을 선택해주세요:\n"
+    for i, coin in enumerate(user_data_store[user_id]):
+        reply += f"{i + 1}. {coin['coin']}\n"
+    update.message.reply_text(reply)
+    context.user_data['delete_mode'] = True
 
 def main():
     token = os.getenv("TELEGRAM_TOKEN")
@@ -88,25 +111,26 @@ def main():
         return
 
     updater = Updater(token, use_context=True)
-    dispatcher = updater.dispatcher
+    dp = updater.dispatcher
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('코인입력', coin_input)],
+        entry_points=[CommandHandler("coininput", coin_input)],
         states={
-            COIN_NAME: [MessageHandler(Filters.text & ~Filters.command, get_coin_name)],
-            COIN_PRICE: [MessageHandler(Filters.text & ~Filters.command, get_coin_price)],
-            TARGET_PROFIT: [MessageHandler(Filters.text & ~Filters.command, get_target_profit)],
-            INTERVAL: [MessageHandler(Filters.text & ~Filters.command, get_interval)],
+            ASK_COIN: [MessageHandler(Filters.text & ~Filters.command, ask_price)],
+            ASK_PRICE: [MessageHandler(Filters.text & ~Filters.command, ask_target)],
+            ASK_TARGET: [MessageHandler(Filters.text & ~Filters.command, ask_interval)],
+            ASK_INTERVAL: [MessageHandler(Filters.text & ~Filters.command, save_coin)],
         },
-        fallbacks=[CommandHandler('취소', cancel)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    dispatcher.add_handler(CommandHandler('start', start))
-    dispatcher.add_handler(conv_handler)
-    dispatcher.add_handler(CommandHandler('코인목록', list_coins))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(conv_handler)
+    dp.add_handler(CommandHandler("coinupdate", coin_update))
+    dp.add_handler(CommandHandler("coindelete", coin_delete))
 
     updater.start_polling()
     updater.idle()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

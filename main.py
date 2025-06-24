@@ -93,7 +93,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 앱 실행
 def main():
-    TOKEN = "여기에_너의_텔레그램_봇_API_토큰을_넣어줘"
+    TOKEN = "7634502846:AAEum3VRV2ZjhspSlJHXgsGsJh-m-KPnodc"
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(

@@ -1,4 +1,4 @@
 python-telegram-bot==13.14
 APScheduler==3.6.3
-aiohttp
+aiohttp==3.12.13
 requests==2.31.0

@@ -1,97 +1,70 @@
-import os
 import logging
+import os
 import requests
 from telegram import Update
-from telegram.ext import (
-    Updater,
-    CommandHandler,
-    MessageHandler,
-    Filters,
-    CallbackContext,
-)
+from telegram.ext import Updater, CommandHandler, CallbackContext, MessageHandler, Filters
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# ────────────────── 설정 ──────────────────
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# 로깅 설정
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 모든 코인 설정을 저장할 딕셔너리
-coins = {}
-# ────────────────── 핸들러 ──────────────────
+# 코인 정보 저장용 딕셔너리
+coin_data = {}
+
+# 기본 봇 토큰 (배포 환경에서는 환경변수로 관리)
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "여기에_실제_토큰_값_입력")
+
+# 명령어: /start
 def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text(
-        "안녕하세요! ‟/코인입력”으로 코인을 등록하고, "
-        "‟/코인목록”으로 현재 설정을 확인할 수 있어요."
-    )
+    update.message.reply_text('안녕하세요! 코인 수익률 알림 봇입니다.\n"/coininput"으로 코인을 등록하세요.')
 
+# 명령어: /coininput (코인 입력)
 def coin_input(update: Update, context: CallbackContext) -> None:
-    """사용자: /코인입력 BTC 85000000 0.05"""
-    try:
-        _, symbol, buy_price, target = update.message.text.split()
-        coins[symbol.upper()] = {
-            "buy_price": float(buy_price),
-            "target": float(target),  # 0.05 → +5 %
-        }
-        update.message.reply_text(f"{symbol.upper()} 등록 완료 ✅")
-    except ValueError:
-        update.message.reply_text(
-            "사용법: /코인입력 <심볼> <매수가격(KRW)> <목표수익률(0.05=5%)>"
-        )
+    update.message.reply_text('코인 이름을 입력해주세요.')
+    return
 
+# 명령어: /coinlist (현재 설정 확인)
 def coin_list(update: Update, context: CallbackContext) -> None:
-    if not coins:
-        update.message.reply_text("저장된 코인이 없습니다.")
-        return
-    lines = []
-    for sym, info in coins.items():
-        lines.append(f"{sym} | 매수 {info['buy_price']:,}₩ | 목표 +{info['target']*100:.1f}%")
-    update.message.reply_text("\n".join(lines))
+    if not coin_data:
+        update.message.reply_text('등록된 코인이 없습니다.')
+    else:
+        message = "현재 등록된 코인:\n"
+        for name, info in coin_data.items():
+            message += f"- {name}: 매수가 {info['buy_price']}, 목표 수익률 {info['target_profit']}%\n"
+        update.message.reply_text(message)
 
-def check_prices(context: CallbackContext) -> None:
-    if not coins:
-        return
-    bot = context.bot
-    chat_id = context.job.context
-    for sym, info in coins.items():
-        price = fetch_price(sym)
-        if price is None:
-            continue
-        pnl = (price - info["buy_price"]) / info["buy_price"]
-        msg = f"[{sym}] 현재가 {price:,}₩ | 손익 {pnl*100:+.2f}%"
-        bot.send_message(chat_id, msg)
+# 가격 확인용 함수 (예시)
+def check_prices():
+    for name, info in coin_data.items():
+        try:
+            response = requests.get(f"https://api.upbit.com/v1/ticker?markets=KRW-{name}")
+            response.raise_for_status()
+            data = response.json()[0]
+            current_price = data['trade_price']
+            profit = (current_price - info['buy_price']) / info['buy_price'] * 100
+            logger.info(f"{name}: 현재가 {current_price}, 수익률 {profit:.2f}%")
+        except Exception as e:
+            logger.error(f"가격 확인 실패: {name}, 오류: {e}")
 
-def fetch_price(symbol: str):
-    """업비트 KRW 마켓 가격 가져오기 (간단 요청)"""
-    url = f"https://api.upbit.com/v1/ticker?markets=KRW-{symbol.upper()}"
-    try:
-        r = requests.get(url, timeout=3)
-        r.raise_for_status()
-        return r.json()[0]["trade_price"]
-    except Exception as e:
-        logger.warning("가격 조회 실패 %s: %s", symbol, e)
-        return None
+# 메인 함수
+def main():
+    print(f"=== TOKEN 값: {TOKEN} ===")
 
-# ────────────────── 메인 ──────────────────
-def main() -> None:
-    token = os.getenv("TOKEN")            # ← **딱 한 번만 읽음**
-    if not token:
-        raise RuntimeError("TOKEN 환경변수가 없습니다!")
-
-    updater = Updater(token=token, use_context=True)
+    updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("코인입력", coin_input))
-    dp.add_handler(CommandHandler("코인목록", coin_list))
+    dp.add_handler(CommandHandler("coininput", coin_input))
+    dp.add_handler(CommandHandler("coinlist", coin_list))
 
-    # 60초마다 가격 체크
-    job_queue = updater.job_queue
-    job_queue.run_repeating(check_prices, interval=60, first=10, context=updater.bot.id)
+    # 주기적으로 가격 확인
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_prices, 'interval', minutes=5)
+    scheduler.start()
 
     updater.start_polling()
     updater.idle()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

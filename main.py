@@ -1,3 +1,6 @@
+import os
+print("=== TOKEN 값:", os.getenv("TOKEN"), "===")   # ← 추가
+
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 import logging

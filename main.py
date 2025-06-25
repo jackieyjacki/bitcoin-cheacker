@@ -11,7 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # 봇 토큰
-TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+TOKEN = '7634502846:AAEum3VRV2ZjhspSlJHXgsGsJh-m-KPnodc'
 
 # 유저별 코인 정보 저장용 딕셔너리
 user_data = {}
